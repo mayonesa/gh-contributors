@@ -3,8 +3,9 @@ package controllers
 import javax.inject._
 import scala.concurrent.ExecutionContext
 import play.api.mvc._
+import play.api.libs.json._
 
-import models.GitHub
+import models.{ContributorInfo, GitHub}
 
 /**
  * This controller creates an `Action` that demonstrates how to write
@@ -17,13 +18,16 @@ import models.GitHub
 @Singleton
 class ContributorsController @Inject()(gh: GitHub, val controllerComponents: ControllerComponents)
                                       (implicit exec: ExecutionContext) extends BaseController {
+  private implicit val contributorWrites: OWrites[ContributorInfo] = Json.writes[ContributorInfo]
 
   /**
    * Creates an Action that, given an organization name, returns a list of its contributors sorted by descending number
    * of contributions.
    * Assumption: number of commits per contributor will not exceed `Int.MaxValue` (2,147,483,647)
    */
-  def byNContributions(orgName: String) = Action.async {
-    gh.contributorsByNCommits(orgName).map { msg => Ok(msg) }
+  def byNContributions(orgName: String): Action[AnyContent] = Action.async {
+    gh.contributorsByNCommits(orgName).map { contributors =>
+      Ok(Json.toJson(contributors))
+    }
   }
 }

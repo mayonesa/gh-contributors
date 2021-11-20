@@ -1,3 +1,3 @@
 package models
 
-case class ContributorInfo(name: String, nCommits: Int)
+case class ContributorInfo(name: String, contributions: Int)
