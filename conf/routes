@@ -1,2 +1,3 @@
-GET     /org/:orgName/contributors              controllers.ContributorsController.contributorsByNCommits(orgName)
+# assumes number of commits per contributor will not exceed `Int.MaxValue` (2,147,483,647)
+GET     /org/:orgName/contributors              controllers.ContributorsController.byNContributions(orgName)
       

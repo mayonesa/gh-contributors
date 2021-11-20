@@ -21,8 +21,9 @@ class ContributorsController @Inject()(gh: GitHub, val controllerComponents: Con
   /**
    * Creates an Action that, given an organization name, returns a list of its contributors sorted by descending number
    * of contributions.
+   * Assumption: number of commits per contributor will not exceed `Int.MaxValue` (2,147,483,647)
    */
-  def contributorsByNCommits(orgName: String) = Action.async {
+  def byNContributions(orgName: String) = Action.async {
     gh.contributorsByNCommits(orgName).map { msg => Ok(msg) }
   }
 }
