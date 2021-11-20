@@ -1,0 +1,2 @@
+GET     /org/:orgName/contributors              controllers.ContributorsController.contributorsByNCommits(orgName)
+      
