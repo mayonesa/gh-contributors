@@ -12,11 +12,7 @@ scalaVersion := "2.13.7"
 libraryDependencies ++= Seq(
   caffeine,
   ws,
-  //scalatest % Test,
   guice,
-  "org.typelevel" %% "cats-core" % "2.6.1" // for aggregating contributions
-)
-
-scalacOptions ++= Seq(
-  "-Xfatal-warnings"
+  "org.typelevel" %% "cats-core" % "2.6.1", // for aggregating contributions at contributor level
+  "org.scalatestplus.play" %% "scalatestplus-play" % "5.1.0" % "test"
 )

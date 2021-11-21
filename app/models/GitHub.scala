@@ -1,19 +1,24 @@
 package models
 
 import javax.inject.{Inject, Singleton}
-import scala.concurrent.Future
+import scala.concurrent.{ExecutionContext, Future}
 
 @Singleton
-class GitHub @Inject()() {
+class GitHub @Inject()(implicit exec: ExecutionContext) {
+  private val contributorsFutZero = Future.successful(SortedByNContributions.empty)
+
   def contributorsByNCommits(orgName: String): Future[Seq[ContributorInfo]] =
-    repos(orgName).map(_.foldLeft(Future.successful(SortedByNContributions.empty)) { case (accFut, repo) =>
-      for {
-        conts <- contributors(repo)
-        acc <- accFut
-      } yield acc ++ conts
-    }).map(_.descCommits)
+    for {
+      repos <- repos(orgName)
+      orgContributors <- repos.foldLeft(contributorsFutZero) { case (accFut, repo) =>
+        for {
+          repoContributors <- contributorsByNCommits(repo)
+          acc <- accFut
+        } yield acc ++ repoContributors
+      }
+    } yield orgContributors.sortedContributors
 
   def repos(orgName: String): Future[Seq[Repo]] = ???
 
-  def contributors(repo: Repo): Future[SortedByNContributions] = ???
+  def contributorsByNCommits(repo: Repo): Future[SortedByNContributions] = ???
 }
