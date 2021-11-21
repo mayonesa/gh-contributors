@@ -11,9 +11,11 @@ class SortedByNContributionsSpec extends PlaySpec {
   private val ChuloInfo = ContributorInfo("chulo", 62)
   private val Contributors0 = new SortedByNContributions(Seq(ChuloInfo, ContributorInfo(Pepe, PepeCommits0), TitoInfo))
   private val Pedro = "pedro"
-  private val PedroInfo = ContributorInfo(Pedro, 30)
+  private val PedroCommits = 30
+  private val PedroInfo = ContributorInfo(Pedro, PedroCommits)
   private val MistinInfo = ContributorInfo("mistin", 23)
-  private val Contributors1 = new SortedByNContributions(Seq(ContributorInfo(Pepe, PepeCommits1), PedroInfo,
+  private val PepeInfo1: ContributorInfo = ContributorInfo(Pepe, PepeCommits1)
+  private val Contributors1 = new SortedByNContributions(Seq(PepeInfo1, PedroInfo,
     MistinInfo))
 
   "++" must {
@@ -23,12 +25,14 @@ class SortedByNContributionsSpec extends PlaySpec {
     "left list when right is empty" in {
       (Contributors0 ++ SortedByNContributions.empty) mustBe Contributors0
     }
-    "sort + add collisions" in {
+    "sort and add collisions" in {
       (Contributors0 ++ Contributors1) mustBe new SortedByNContributions(Seq(
         ContributorInfo(Pepe, PepeCommits0 + PepeCommits1), ChuloInfo, PedroInfo, MistinInfo, TitoInfo))
     }
-    "sort + add same contributor w/ same number of contributions" in {
-      fail()
+    "sort and add same contributor w/ same number of contributions" in {
+      val contributors0 = new SortedByNContributions(Seq(ChuloInfo, PedroInfo, TitoInfo))
+      (contributors0 ++ Contributors1) mustBe new SortedByNContributions(Seq(
+        ChuloInfo, ContributorInfo(Pedro, PedroCommits * 2), PepeInfo1, MistinInfo, TitoInfo))
     }
   }
 }
