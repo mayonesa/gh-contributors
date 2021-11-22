@@ -1,54 +1,56 @@
 package models
 
-import scala.annotation.tailrec
+import cats.instances.map._     // for Monoid
+import cats.syntax.semigroup._  // for |+|
 
-import cats.instances.map._ // for Monoid
-import cats.syntax.semigroup._ // for |+|
+import SortedByNContributions.{NoAndAggDupesZero, contributorOrdering}
 
-import models.SortedByNContributions.contributorOrdering
-
-class SortedByNContributions private[models] (val sortedContributors: Seq[ContributorInfo]) {
+class SortedByNContributions private[models] (private[models] val sortedContributors: Vector[ContributorInfo]) {
   // exploits pre-sorted condition of the data structure (`Map.sortBy` does not). time complexity: O(mn)
   def ++ (that: SortedByNContributions): SortedByNContributions = {
-    @tailrec
-    def loop(l: Seq[ContributorInfo],
-             r: Seq[ContributorInfo],
-             acc: Seq[ContributorInfo],
-             record: Map[String, Int],
-             dupes: Map[String, Int]): (Seq[ContributorInfo], Map[String, Int]) =
-      if (l.isEmpty && r.isEmpty) (acc, dupes)
+    // merge lists of sorted contributors into sorted contributors list where dupes are not aggregated
+    def loop(l0: Vector[ContributorInfo],
+             r0: Vector[ContributorInfo],
+             acc: Vector[ContributorInfo],
+             allNames0: Set[String],
+             dupes0: Set[String]): (Vector[ContributorInfo], Set[String]) =
+      if (l0.isEmpty && r0.isEmpty) (acc, dupes0)
       else {
-        lazy val rh = r.head
-        lazy val rn = rh.name
+        lazy val rh = r0.head
         lazy val rc = rh.contributions
-        lazy val lh = l.head
+        lazy val lh = l0.head
         lazy val lc = lh.contributions
-        lazy val ln = lh.name
 
-        if (l.isEmpty || (r.nonEmpty && lc < rc))
-          if (record.contains(rn)) loop(l, r.tail, acc, record, dupes |+| Map(rn -> rc))
-          else loop(l, r.tail, acc :+ rh, record + (rn -> rc), dupes)
-        else if (r.isEmpty || lc > rc)
-          if (record.contains(ln)) loop(l.tail, r, acc, record, dupes |+| Map(ln -> lc))
-          else loop(l.tail, r, acc :+ lh, record + (ln -> lc), dupes)
-        else // lc == rc
-          if (record.contains(ln) || ln == rn)
-            loop(l.tail, r.tail, acc, record, dupes |+| Map(ln -> lc) |+| Map(rn -> rc))
-          else loop(l.tail, r.tail, acc :+ lh :+ rh, record + (ln -> lc), dupes)
+        def next(l: Vector[ContributorInfo], r: Vector[ContributorInfo], ci: ContributorInfo) = {
+          val nm = ci.name
+          val (allNames, dupes) = if (allNames0.contains(nm)) (allNames0, dupes0 + nm) else (allNames0 + nm, dupes0)
+
+          loop(l, r, acc :+ ci, allNames, dupes)
+        }
+
+        if (l0.isEmpty || (r0.nonEmpty && lc < rc)) next(l0, r0.tail, rh)
+        else next(l0.tail, r0, lh)
       }
 
-    val (missingDupes, dupes) = loop(sortedContributors, that.sortedContributors, Seq.empty, Map.empty, Map.empty)
-    new SortedByNContributions(merge(missingDupes, dupes))
+    val (nonAggregated, dupes) = loop(sortedContributors, that.sortedContributors, Vector.empty, Set.empty, Set.empty)
+    new SortedByNContributions(aggregateDupes(nonAggregated, dupes))
   }
 
-  private def merge(sortedByNCommits: Seq[ContributorInfo], xtras: Map[String, Int]) =
-    xtras.foldLeft(sortedByNCommits)(insert)
+  private def aggregateDupes(nonAggSortedByNCommits: Vector[ContributorInfo], dupes: Set[String]) = {
+    // remove dupes while creating an aggregated-dupe list
+    val (noDupes, aggDupes) = nonAggSortedByNCommits.foldLeft(NoAndAggDupesZero) { case ((noDupes0, aggDupes0), ci) =>
+      if (dupes.contains(ci.name)) (noDupes0, aggDupes0 |+| Map(ci.tuple))
+      else (noDupes0 :+ ci, aggDupes0)
+    }
 
-  private def insert(sortedByNContributions: Seq[ContributorInfo], xtra: (String, Int)) = {
+    // insert aggregated dupes into the no-dupes list
+    aggDupes.foldLeft(noDupes)(insert)
+  }
+
+  private def insert(sortedByNContributions: Vector[ContributorInfo], xtra: (String, Int)) = {
     val (name, nContributions) = xtra
-    val contributorInfo = ContributorInfo(name, nContributions)
-    val (prefix, suffix) = sortedByNContributions.partition(contributorOrdering.gteq(_, contributorInfo))
-    (prefix :+ contributorInfo) ++ suffix
+    val ci = ContributorInfo(name, nContributions)
+    descInsert(sortedByNContributions, ci)
   }
 
   override def hashCode: Int = sortedContributors.hashCode
@@ -60,7 +62,9 @@ class SortedByNContributions private[models] (val sortedContributors: Seq[Contri
 }
 
 object SortedByNContributions {
-  private val contributorOrdering: Ordering[ContributorInfo] = Ordering.by(_.contributions)
+  private val NoAndAggDupesZero = (Vector.empty[ContributorInfo], Map.empty[String, Int])
 
-  def empty: SortedByNContributions = new SortedByNContributions(Seq.empty)
+  def empty: SortedByNContributions = new SortedByNContributions(Vector.empty)
+
+  implicit def contributorOrdering: Ordering[ContributorInfo] = Ordering.by(_.contributions)
 }
