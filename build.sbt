@@ -10,7 +10,7 @@ resolvers += "Akka Snapshot Repository" at "https://repo.akka.io/snapshots/"
 scalaVersion := "2.13.7"
 
 libraryDependencies ++= Seq(
-  caffeine,
+  ehcache,
   ws,
   guice,
   "org.typelevel" %% "cats-core" % "2.6.1", // for aggregating contributions at contributor level
