@@ -1,5 +1,7 @@
 package models
 
+import scala.annotation.tailrec
+
 import cats.instances.map._     // for Monoid
 import cats.syntax.semigroup._  // for |+|
 
@@ -8,7 +10,8 @@ import SortedByNContributions.{NoAndAggDupesZero, contributorOrdering}
 class SortedByNContributions private[models] (private[models] val sortedContributors: Vector[ContributorInfo]) {
   // exploits pre-sorted condition of the data structure (`Map.sortBy` does not). time complexity: O(mn)
   def ++ (that: SortedByNContributions): SortedByNContributions = {
-    // merge lists of sorted contributors into sorted contributors list where dupes are not aggregated
+    // merge lists of sorted contributors into sorted contributors list where dupes are not aggregated.
+    @tailrec
     def loop(l0: Vector[ContributorInfo],
              r0: Vector[ContributorInfo],
              acc: Vector[ContributorInfo],
@@ -21,15 +24,20 @@ class SortedByNContributions private[models] (private[models] val sortedContribu
         lazy val lh = l0.head
         lazy val lc = lh.contributions
 
-        def next(l: Vector[ContributorInfo], r: Vector[ContributorInfo], ci: ContributorInfo) = {
+        def records(ci: ContributorInfo) = {
           val nm = ci.name
-          val (allNames, dupes) = if (allNames0.contains(nm)) (allNames0, dupes0 + nm) else (allNames0 + nm, dupes0)
-
-          loop(l, r, acc :+ ci, allNames, dupes)
+          if (allNames0.contains(nm)) (allNames0, dupes0 + nm) else (allNames0 + nm, dupes0)
         }
 
-        if (l0.isEmpty || (r0.nonEmpty && lc < rc)) next(l0, r0.tail, rh)
-        else next(l0.tail, r0, lh)
+        val (l, r, ci, allNames, dupes) = if (l0.isEmpty || (r0.nonEmpty && lc < rc)) {
+          val (allNames, dupes) = records(rh)
+          (l0, r0.tail, rh, allNames, dupes)
+        } else {
+          val (allNames, dupes) = records(lh)
+          (l0.tail, r0, lh, allNames, dupes)
+        }
+
+        loop(l, r, acc :+ ci, allNames, dupes)
       }
 
     val (nonAggregated, dupes) = loop(sortedContributors, that.sortedContributors, Vector.empty, Set.empty, Set.empty)
