@@ -24,16 +24,18 @@ class SortedByNContributions private[models] (private[models] val sortedContribu
         lazy val lh = l0.head
         lazy val lc = lh.contributions
 
-        def records(ci: ContributorInfo) = {
+        def updatedRecords(ci: ContributorInfo) = {
           val nm = ci.name
-          if (allNames0.contains(nm)) (allNames0, dupes0 + nm) else (allNames0 + nm, dupes0)
+          val isDupe = allNames0.contains(nm)
+          if (isDupe) (allNames0, dupes0 + nm) else (allNames0 + nm, dupes0)
         }
 
-        val (l, r, ci, allNames, dupes) = if (l0.isEmpty || (r0.nonEmpty && lc < rc)) {
-          val (allNames, dupes) = records(rh)
+        val rightSourceNext = l0.isEmpty || (r0.nonEmpty && lc < rc)
+        val (l, r, ci, allNames, dupes) = if (rightSourceNext) {
+          val (allNames, dupes) = updatedRecords(rh)
           (l0, r0.tail, rh, allNames, dupes)
-        } else {
-          val (allNames, dupes) = records(lh)
+        } else { // left source of sorted contributors is next
+          val (allNames, dupes) = updatedRecords(lh)
           (l0.tail, r0, lh, allNames, dupes)
         }
 
