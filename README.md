@@ -1,29 +1,9 @@
-# README #
-
-This README would normally document whatever steps are necessary to get your application up and running.
-
 ### What is this repository for? ###
 
-* Quick summary
-* Version
-* [Learn Markdown](https://bitbucket.org/tutorials/markdowndemo)
+* Given an org name, http://localhost:8080/org/$org_name/contributors will give all its contributors with their number 
+of contributions in descending order of said contributions
 
-### How do I get set up? ###
+### How do I start? ###
 
-* Summary of set up
-* Configuration
-* Dependencies
-* Database configuration
-* How to run tests
-* Deployment instructions
-
-### Contribution guidelines ###
-
-* Writing tests
-* Code review
-* Other guidelines
-
-### Who do I talk to? ###
-
-* Repo owner or admin
-* Other community or team contact
+* export GH_TOKEN=\<appropriate_github_token>
+* ./run.sh
