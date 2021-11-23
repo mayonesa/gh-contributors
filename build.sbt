@@ -17,6 +17,9 @@ libraryDependencies ++= Seq(
   "org.scalatestplus.play" %% "scalatestplus-play" % "5.1.0" % "test"
 )
 
+Test / fork := true
+Test / envVars := Map("GH_TOKEN" -> "test_gh_token")
+
 scalacOptions ++= Seq(
   "-Xfatal-warnings"
 )

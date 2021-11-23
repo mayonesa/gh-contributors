@@ -4,16 +4,20 @@ import play.api.libs.ws.WSClient
 import play.api.libs.json._
 import play.api.libs.functional.syntax._
 import play.api.Logging
+import play.api.http.Status.{OK, NOT_FOUND}
 
 import javax.inject.{Inject, Singleton}
 import scala.concurrent.{ExecutionContext, Future}
 
 @Singleton
-class GitHub @Inject()(ws: WSClient)(implicit exec: ExecutionContext) extends Logging {
+class GitHub private[models] (ws: WSClient, baseUrl: String)(implicit ec: ExecutionContext) extends Logging {
+  @Inject def this(ws: WSClient, ec: ExecutionContext) = this(ws, "https://developer.github.com/v3")(ec)
+
   private lazy val contributorsFutZero = Future.successful(SortedByNContributions.empty)
-  private val baseUrl = "https://developer.github.com/v3/"
-  private val auth = "Authorization" -> s"token ${sys.env("GH_TOKEN")}"
-  private val acceptGhJson = "Accept" -> "application/vnd.github.v3+json"
+  private val auth = "authorization" -> s"token ${sys.env("GH_TOKEN")}"
+  private val acceptGhJson = "accept" -> "application/vnd.github.v3+json"
+  private val userAgent = "user-agent" -> "gh-contributors"
+  private val queryBase = "?per_page=100&page="
 
   implicit private val repoReads: Reads[Repo] = (
     (JsPath \ "name").read[String] and
@@ -27,37 +31,58 @@ class GitHub @Inject()(ws: WSClient)(implicit exec: ExecutionContext) extends Lo
   def contributorsByNCommits(orgName: String): Future[Vector[ContributorInfo]] =
     for {
       repos <- repos(orgName)
-      orgContributors <- repos.foldLeft(contributorsFutZero) { (accFut, repo) =>
-        for {
-          repoContributors <- contributorsByNCommits(repo)
-          acc <- accFut
-        } yield acc ++ repoContributors
-      }
+      orgContributors <- contributorsByNCommits(repos)
     } yield orgContributors.sortedContributors
 
   def repos(orgName: String): Future[Vector[Repo]] =
-    get(s"orgs/$orgName/repos")(_.validate[Vector[Repo]] match {
-      case JsSuccess(repos, _) => repos
-      case e: JsError =>
-        logDeserializationError(e, "Repos")
-        Vector()
+    get(s"/orgs/$orgName/repos")(_.validate[Vector[Repo]] match {
+      case JsSuccess(repos, _) => Future.successful(repos)
+      case e: JsError => handleDeserializationError(e, "Repos")
     })
 
   def contributorsByNCommits(repo: Repo): Future[SortedByNContributions] =
-    get(s"repos/${repo.owner}/${repo.name}/contributors")(_.validate[Vector[ContributorInfo]] match {
-      case JsSuccess(contributors, _) => new SortedByNContributions(contributors)
-      case e: JsError =>
-        logDeserializationError(e, "Contributor infos")
-        SortedByNContributions.empty
-    })
+    get(s"/repos/${repo.owner}/${repo.name}/contributors")(_.validate[Vector[ContributorInfo]] match {
+      case JsSuccess(contributors, _) => Future.successful(contributors)
+      case e: JsError => handleDeserializationError(e, "Contributor infos")
+    }).map(new SortedByNContributions(_))
 
+  private def get[T](url: String)(f: JsValue => Future[Vector[T]]) = {
+    def loop(page: Int, acc: Vector[T]): Future[Vector[T]] = {
+      val request = ws.url(s"$baseUrl$url$queryBase$page").addHttpHeaders(auth, acceptGhJson, userAgent)
+      val recordsFromPage = request.get().flatMap { resp =>
+        val status = resp.status
+        if (status == OK) f(resp.json)
+        else {
+          // per https://docs.github.com/en/rest/overview/resources-in-the-rest-api#authentication,
+          // 404 is given even if the record were there if the user agent is not authenticated (safety feature)
+          val errMsg = if (status == NOT_FOUND) "Record does not exist or user agent not authenticated"
+          else "Error response from GitHub"
+          logger.error(errMsg)
+          Future.failed[Vector[T]](new Exception(errMsg))
+        }
+      }
+      recordsFromPage.flatMap { xs =>
+        if (xs.nonEmpty) {
+          val nextPage = loop(page + 1, acc ++ xs)
+          nextPage
+        } else Future.successful(acc)
+      }
+    }
 
-  private def get[T](url: String)(f: JsValue => T) =
-    ws.url(s"$baseUrl$url")
-      .addHttpHeaders(auth, acceptGhJson)
-      .get.map(resp => f(resp.json))
+    loop(1, Vector.empty)
+  }
 
-  private def logDeserializationError(e: JsError, entity: String): Unit = {
-    logger.error(s"$entity deserialization error: ${JsError.toJson(e)}")
+  private def contributorsByNCommits(repos: Vector[Repo]): Future[SortedByNContributions] =
+    repos.foldLeft(contributorsFutZero) { (accFut, repo) =>
+      for {
+        repoContributors <- contributorsByNCommits(repo)
+        acc <- accFut
+      } yield acc ++ repoContributors
+    }
+
+  private def handleDeserializationError(e: JsError, entity: String) = {
+    val errMsg = s"$entity deserialization error: ${JsError.toJson(e)}"
+    logger.error(errMsg)
+    Future.failed(new Exception(errMsg))
   }
 }
