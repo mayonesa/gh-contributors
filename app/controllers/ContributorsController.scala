@@ -9,14 +9,6 @@ import models.{ContributorInfo, GitHub}
 
 import scala.util.{Failure, Success, Try}
 
-/**
- * This controller creates an `Action` that demonstrates how to write
- * simple asynchronous code in a controller. It uses a timer to
- * asynchronously delay sending a response for 1 second.
- *
- * @param controllerComponents standard controller components
- * @param exec `ExecutionContext` to execute the asynchronous code
- */
 @Singleton
 class ContributorsController @Inject()(gh: GitHub, cache: AsyncCacheApi, val controllerComponents: ControllerComponents)
                                       (implicit exec: ExecutionContext) extends BaseController {
