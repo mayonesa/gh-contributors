@@ -62,10 +62,7 @@ class GitHub private[models] (ws: WSClient,
         val status = resp.status
         if (status == OK) f(resp.json)
         else {
-          val ex = if (status == NOT_FOUND)
-            // per https://docs.github.com/en/rest/overview/resources-in-the-rest-api#authentication,
-            // 404 is given even if the record were there if the user agent is not authenticated (safety feature)
-            new Gh404ResponseException
+          val ex = if (status == NOT_FOUND) new Gh404ResponseException
           else new OtherThanGh404ErrorException(resp.body)
           logger.error(ex.getMessage)
           Future.failed[Vector[T]](ex)
