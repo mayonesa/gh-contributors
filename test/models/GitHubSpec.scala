@@ -1,10 +1,12 @@
 package models
 
+import exceptions.{Gh404ResponseException, OtherThanGh404ErrorException}
 import org.scalatestplus.play._
 import play.core.server.Server
 import play.api.routing.sird._
 import play.api.mvc._
 import play.api.libs.json._
+import play.api.libs.ws.WSClient
 import play.api.test._
 
 import scala.concurrent.Await
@@ -13,7 +15,13 @@ import scala.concurrent.duration._
 class GitHubSpec extends PlaySpec {
   import scala.concurrent.ExecutionContext.Implicits.global
 
-  private val orgName = "org_name"
+  private val orgName0 = "org_name"
+  private val perPage0 = 42
+
+  private def contributors(client: WSClient) = {
+    val gh = new GitHub(client, "", "", "", "", perPage0.toString)
+    Await.result(gh.contributorsByNCommits(orgName0), 10.seconds)
+  }
 
   "`contributorsByNCommits`" must {
     val empty = Json.arr()
@@ -22,18 +30,17 @@ class GitHubSpec extends PlaySpec {
         import Results._
         import components.{ defaultActionBuilder => Action }
         {
-          case GET(p"/orgs/$orgName0/repos" ? q"page=${int(page)}" & q"per_page=${int(perPage)}") =>
+          case GET(p"/orgs/$orgName/repos" ? q"page=${int(page)}" & q"per_page=${int(perPage)}") =>
             orgName mustBe orgName0
             page mustBe 1
-            perPage mustBe 100
+            perPage mustBe perPage0
             Action {
               Ok(empty)
             }
         }
       } { implicit port =>
         WsTestClient.withClient { client =>
-          val contributors = Await.result(new GitHub(client, "").contributorsByNCommits(orgName), 10.seconds)
-          contributors.size mustBe 0
+          contributors(client).size mustBe 0
         }
       }
     }
@@ -82,8 +89,7 @@ class GitHubSpec extends PlaySpec {
         }
       } { implicit port =>
         WsTestClient.withClient { client =>
-          val contributors = Await.result(new GitHub(client, "").contributorsByNCommits(orgName), 10.seconds)
-          contributors.size mustBe 0
+          contributors(client).size mustBe 0
         }
       }
     }
@@ -222,8 +228,8 @@ class GitHubSpec extends PlaySpec {
         }
       } { implicit port =>
         WsTestClient.withClient { client =>
-          val contributors = Await.result(new GitHub(client, "").contributorsByNCommits(orgName), 10.seconds)
-          contributors mustBe Vector(ContributorInfo(name1, c1 * 2), ContributorInfo(name3, 2 * c3 + c3_1), ci2, ci4)
+          contributors(client) mustBe Vector(ContributorInfo(name1, c1 * 2), ContributorInfo(name3, 2 * c3 + c3_1),
+            ci2, ci4)
         }
       }
     }
@@ -239,8 +245,26 @@ class GitHubSpec extends PlaySpec {
         }
       } { implicit port =>
         WsTestClient.withClient { client =>
-          a[Exception] must be thrownBy {
-            Await.result(new GitHub(client, "").contributorsByNCommits(orgName), 10.seconds)
+          a[Gh404ResponseException] must be thrownBy {
+            contributors(client)
+          }
+        }
+      }
+    }
+    "exception when other than 200 or 404" in {
+      Server.withRouterFromComponents() { components =>
+        import Results._
+        import components.{ defaultActionBuilder => Action }
+        {
+          case GET(p"/orgs/$_/repos") =>
+            Action {
+              InternalServerError
+            }
+        }
+      } { implicit port =>
+        WsTestClient.withClient { client =>
+          a[OtherThanGh404ErrorException] must be thrownBy {
+            contributors(client)
           }
         }
       }

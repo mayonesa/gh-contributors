@@ -1,23 +1,32 @@
 package models
 
+import exceptions.{Gh404ResponseException, OtherThanGh404ErrorException}
 import play.api.libs.ws.WSClient
 import play.api.libs.json._
 import play.api.libs.functional.syntax._
-import play.api.Logging
-import play.api.http.Status.{OK, NOT_FOUND}
+import play.api.{Configuration, Logging}
+import play.api.http.Status.{NOT_FOUND, OK}
 
 import javax.inject.{Inject, Singleton}
 import scala.concurrent.{ExecutionContext, Future}
 
 @Singleton
-class GitHub private[models] (ws: WSClient, baseUrl: String)(implicit ec: ExecutionContext) extends Logging {
-  @Inject def this(ws: WSClient, ec: ExecutionContext) = this(ws, "https://developer.github.com/v3")(ec)
+class GitHub private[models] (ws: WSClient,
+                              baseUrl: String,
+                              ghToken: String,
+                              accept: String,
+                              userAgent: String,
+                              perPage: String)
+                             (implicit ec: ExecutionContext) extends Logging {
+  @Inject def this(ws: WSClient, config: Configuration, ec: ExecutionContext) =
+    this(ws, config.get[String]("github.baseUrl"), sys.env("GH_TOKEN"), config.get[String]("github.accept"),
+      config.get[String]("github.userAgent"), config.get[String]("github.perPage"))(ec)
 
   private lazy val contributorsFutZero = Future.successful(SortedByNContributions.empty)
-  private val auth = "authorization" -> s"token ${sys.env("GH_TOKEN")}"
-  private val acceptGhJson = "accept" -> "application/vnd.github.v3+json"
-  private val userAgent = "user-agent" -> "gh-contributors"
-  private val queryBase = "?per_page=100&page="
+  private val authHeader = "authorization" -> s"token $ghToken"
+  private val acceptHeader = "accept" -> accept
+  private val userAgentHeader = "user-agent" -> userAgent
+  private val queryBase = s"?per_page=$perPage&page="
 
   implicit private val repoReads: Reads[Repo] = (
     (JsPath \ "name").read[String] and
@@ -48,17 +57,18 @@ class GitHub private[models] (ws: WSClient, baseUrl: String)(implicit ec: Execut
 
   private def get[T](url: String)(f: JsValue => Future[Vector[T]]) = {
     def loop(page: Int, acc: Vector[T]): Future[Vector[T]] = {
-      val request = ws.url(s"$baseUrl$url$queryBase$page").addHttpHeaders(auth, acceptGhJson, userAgent)
+      val request = ws.url(s"$baseUrl$url$queryBase$page").addHttpHeaders(authHeader, acceptHeader, userAgentHeader)
       val recordsFromPage = request.get().flatMap { resp =>
         val status = resp.status
         if (status == OK) f(resp.json)
         else {
-          // per https://docs.github.com/en/rest/overview/resources-in-the-rest-api#authentication,
-          // 404 is given even if the record were there if the user agent is not authenticated (safety feature)
-          val errMsg = if (status == NOT_FOUND) "Record does not exist or user agent not authenticated"
-          else "Error response from GitHub"
-          logger.error(errMsg)
-          Future.failed[Vector[T]](new Exception(errMsg))
+          val ex = if (status == NOT_FOUND)
+            // per https://docs.github.com/en/rest/overview/resources-in-the-rest-api#authentication,
+            // 404 is given even if the record were there if the user agent is not authenticated (safety feature)
+            new Gh404ResponseException
+          else new OtherThanGh404ErrorException(resp.body)
+          logger.error(ex.getMessage)
+          Future.failed[Vector[T]](ex)
         }
       }
       recordsFromPage.flatMap { xs =>

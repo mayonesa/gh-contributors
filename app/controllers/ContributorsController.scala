@@ -1,5 +1,7 @@
 package controllers
 
+import exceptions.Gh404ResponseException
+
 import javax.inject._
 import scala.concurrent.ExecutionContext
 import play.api.mvc._
@@ -27,10 +29,14 @@ class ContributorsController @Inject()(gh: GitHub, cache: AsyncCacheApi, val con
 
     contributorsFut.transform {
       case Success(contributors) => Try(Ok(Json.toJson(contributors)))
-
-      // failures at this point will very likely stem from records not being found or user agent not authenticated
-      // even if GH does not actually return a 404
-      case Failure(ex) => Try(NotFound(ex.getMessage))
+      case Failure(ex) =>
+        val msg = ex.getMessage
+        Try {
+          ex match {
+            case _: Gh404ResponseException => NotFound(msg)
+            case _ => InternalServerError(msg)
+          }
+        }
     }
   }
 }
