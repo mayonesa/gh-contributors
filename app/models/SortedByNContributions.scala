@@ -7,7 +7,7 @@ import cats.syntax.semigroup._  // for |+|
 
 import SortedByNContributions.{NoAndAggDupesZero, contributorOrdering}
 
-class SortedByNContributions private[models] (private[models] val sortedContributors: Vector[ContributorInfo]) {
+class SortedByNContributions(val sortedContributors: Vector[ContributorInfo]) {
   // exploits pre-sorted condition of the data structure (`Map.sortBy` does not). time complexity: O(mn)
   def ++ (that: SortedByNContributions): SortedByNContributions = {
     // merge lists of sorted contributors into sorted contributors list where dupes are not aggregated.

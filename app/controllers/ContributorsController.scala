@@ -1,19 +1,27 @@
 package controllers
 
-import exceptions.Gh404ResponseException
-
 import javax.inject._
 import scala.concurrent.ExecutionContext
+import scala.util.{Failure, Success, Try}
+
 import play.api.mvc._
 import play.api.libs.json._
 import play.api.cache._
-import models.{ContributorInfo, GitHub}
 
-import scala.util.{Failure, Success, Try}
+import models.ContributorInfo
+import services.GitHub
+import exceptions.Gh404ResponseException
 
 @Singleton
-class ContributorsController @Inject()(gh: GitHub, cache: AsyncCacheApi, val controllerComponents: ControllerComponents)
-                                      (implicit exec: ExecutionContext) extends BaseController {
+class ContributorsController @Inject() private[controllers] (contributorsFut: String => ContributorsFuture,
+                                                             val controllerComponents: ControllerComponents)
+                                                            (implicit exec: ExecutionContext) extends BaseController {
+  @Inject def this(gh: GitHub, cache: AsyncCacheApi, cc: ControllerComponents, exec: ExecutionContext) =
+    // all other caching-potentials are covered by EhCache on the WS client
+    this(orgName =>
+      cache.getOrElseUpdate (s"contributors.$orgName")(gh.contributorsByNCommits(orgName)),
+      cc)(exec)
+
   private implicit val contributorWrites: OWrites[ContributorInfo] = Json.writes[ContributorInfo]
 
   /**
@@ -22,12 +30,7 @@ class ContributorsController @Inject()(gh: GitHub, cache: AsyncCacheApi, val con
    * Assumption: number of commits per contributor will not exceed `Int.MaxValue` (2,147,483,647)
    */
   def byNContributions(orgName: String): Action[AnyContent] = Action.async {
-    // all other caching-potentials are covered by EhCache on the WS client
-    val contributorsFut = cache.getOrElseUpdate[Vector[ContributorInfo]](s"contributors.$orgName") {
-      gh.contributorsByNCommits(orgName)
-    }
-
-    contributorsFut.transform {
+    contributorsFut(orgName).transform {
       case Success(contributors) => Try(Ok(Json.toJson(contributors)))
       case Failure(ex) =>
         val msg = ex.getMessage

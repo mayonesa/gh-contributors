@@ -1,34 +1,35 @@
-package models
+package services
 
 import exceptions.{Gh404ResponseException, OtherThanGh404ErrorException}
+import models.ContributorInfo
 import org.scalatestplus.play._
-import play.core.server.Server
-import play.api.routing.sird._
-import play.api.mvc._
 import play.api.libs.json._
 import play.api.libs.ws.WSClient
+import play.api.mvc._
+import play.api.routing.sird._
 import play.api.test._
+import play.core.server.Server
 
 import scala.concurrent.Await
 import scala.concurrent.duration._
 
 class GitHubSpec extends PlaySpec {
-  import scala.concurrent.ExecutionContext.Implicits.global
-
-  private val orgName0 = "org_name"
-  private val perPage0 = 42
-
-  private def contributors(client: WSClient) = {
-    val gh = new GitHub(client, "", "", "", "", perPage0.toString)
-    Await.result(gh.contributorsByNCommits(orgName0), 10.seconds)
-  }
-
   "`contributorsByNCommits`" must {
+    import scala.concurrent.ExecutionContext.Implicits.global
+
     val empty = Json.arr()
+    val orgName0 = "org_name"
+    val perPage0 = 42
+
+    def contributors(client: WSClient) = {
+      val gh = new GitHub(client, "", "", "", "", perPage0.toString)
+      Await.result(gh.contributorsByNCommits(orgName0), 10.seconds)
+    }
+
     "no repos w/ all req'd params" in {
       Server.withRouterFromComponents() { components =>
         import Results._
-        import components.{ defaultActionBuilder => Action }
+        import components.{defaultActionBuilder => Action}
         {
           case GET(p"/orgs/$orgName/repos" ? q"page=${int(page)}" & q"per_page=${int(perPage)}") =>
             orgName mustBe orgName0
@@ -50,7 +51,7 @@ class GitHubSpec extends PlaySpec {
 
       Server.withRouterFromComponents() { components =>
         import Results._
-        import components.{ defaultActionBuilder => Action }
+        import components.{defaultActionBuilder => Action}
         {
           case GET(p"/orgs/org_name/repos" ? q"page=${int(page)}") =>
             Action {
@@ -170,7 +171,7 @@ class GitHubSpec extends PlaySpec {
 
       Server.withRouterFromComponents() { components =>
         import Results._
-        import components.{ defaultActionBuilder => Action }
+        import components.{defaultActionBuilder => Action}
         {
           case GET(p"/orgs/org_name/repos" ? q"page=${int(page)}") =>
             Action {
@@ -236,7 +237,7 @@ class GitHubSpec extends PlaySpec {
     "empty when org not found or user not authenticated. IOW, 404" in {
       Server.withRouterFromComponents() { components =>
         import Results._
-        import components.{ defaultActionBuilder => Action }
+        import components.{defaultActionBuilder => Action}
         {
           case GET(p"/orgs/$_/repos") =>
             Action {
@@ -254,7 +255,7 @@ class GitHubSpec extends PlaySpec {
     "exception when other than 200 or 404" in {
       Server.withRouterFromComponents() { components =>
         import Results._
-        import components.{ defaultActionBuilder => Action }
+        import components.{defaultActionBuilder => Action}
         {
           case GET(p"/orgs/$_/repos") =>
             Action {

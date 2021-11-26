@@ -1,23 +1,24 @@
-package models
+package services
 
 import exceptions.{Gh404ResponseException, OtherThanGh404ErrorException}
-import play.api.libs.ws.WSClient
-import play.api.libs.json._
-import play.api.libs.functional.syntax._
-import play.api.{Configuration, Logging}
+import models.{ContributorInfo, Repo, SortedByNContributions}
 import play.api.http.Status.{NOT_FOUND, OK}
+import play.api.libs.functional.syntax._
+import play.api.libs.json._
+import play.api.libs.ws.WSClient
+import play.api.{Configuration, Logging}
 
 import javax.inject.{Inject, Singleton}
 import scala.concurrent.{ExecutionContext, Future}
 
 @Singleton
-class GitHub private[models] (ws: WSClient,
-                              baseUrl: String,
-                              ghToken: String,
-                              accept: String,
-                              userAgent: String,
-                              perPage: String)
-                             (implicit ec: ExecutionContext) extends Logging {
+class GitHub private[services] (ws: WSClient,
+                                baseUrl: String,
+                                ghToken: String,
+                                accept: String,
+                                userAgent: String,
+                                perPage: String)
+                               (implicit ec: ExecutionContext) extends Logging {
   @Inject def this(ws: WSClient, config: Configuration, ec: ExecutionContext) =
     this(ws, config.get[String]("github.baseUrl"), sys.env("GH_TOKEN"), config.get[String]("github.accept"),
       config.get[String]("github.userAgent"), config.get[String]("github.perPage"))(ec)
