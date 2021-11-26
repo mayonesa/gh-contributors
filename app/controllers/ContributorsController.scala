@@ -13,9 +13,9 @@ import services.GitHub
 import exceptions.Gh404ResponseException
 
 @Singleton
-class ContributorsController @Inject() private[controllers] (contributorsFut: String => ContributorsFuture,
-                                                             val controllerComponents: ControllerComponents)
-                                                            (implicit exec: ExecutionContext) extends BaseController {
+class ContributorsController private[controllers] (contributorsFut: String => ContributorsFuture,
+                                                   val controllerComponents: ControllerComponents)
+                                                  (implicit exec: ExecutionContext) extends BaseController {
   @Inject def this(gh: GitHub, cache: AsyncCacheApi, cc: ControllerComponents, exec: ExecutionContext) =
     // all other caching-potentials are covered by EhCache on the WS client
     this(orgName =>
