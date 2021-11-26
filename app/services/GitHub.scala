@@ -12,19 +12,13 @@ import javax.inject.{Inject, Singleton}
 import scala.concurrent.{ExecutionContext, Future}
 
 @Singleton
-class GitHub private[services] (ws: WSClient,
-                                baseUrl: String,
-                                ghToken: String,
-                                accept: String,
-                                userAgent: String,
-                                perPage: String)
+class GitHub private[services] (ws: WSClient, baseUrl: String, accept: String, userAgent: String, perPage: String)
                                (implicit ec: ExecutionContext) extends Logging {
   @Inject def this(ws: WSClient, config: Configuration, ec: ExecutionContext) =
-    this(ws, config.get[String]("github.baseUrl"), sys.env("GH_TOKEN"), config.get[String]("github.accept"),
+    this(ws, config.get[String]("github.baseUrl"), config.get[String]("github.accept"),
       config.get[String]("github.userAgent"), config.get[String]("github.perPage"))(ec)
 
   private lazy val contributorsFutZero = Future.successful(SortedByNContributions.empty)
-  private val authHeader = "authorization" -> s"token $ghToken"
   private val acceptHeader = "accept" -> accept
   private val userAgentHeader = "user-agent" -> userAgent
   private val queryBase = s"?per_page=$perPage&page="
@@ -58,7 +52,11 @@ class GitHub private[services] (ws: WSClient,
 
   private def get[T](url: String)(f: JsValue => Future[Vector[T]]) = {
     def loop(page: Int, acc: Vector[T]): Future[Vector[T]] = {
-      val request = ws.url(s"$baseUrl$url$queryBase$page").addHttpHeaders(authHeader, acceptHeader, userAgentHeader)
+      val baseRequest = ws.url(s"$baseUrl$url$queryBase$page")
+      val request = sys.env.get("GH_TOKEN").fold(baseRequest.addHttpHeaders(acceptHeader, userAgentHeader)) { ghToken =>
+        val authHeader = "authorization" -> s"token $ghToken"
+        baseRequest.addHttpHeaders(authHeader, acceptHeader, userAgentHeader)
+      }
       val recordsFromPage = request.get().flatMap { resp =>
         val status = resp.status
         if (status == OK) f(resp.json)

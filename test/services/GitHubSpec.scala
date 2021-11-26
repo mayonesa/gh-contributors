@@ -22,7 +22,7 @@ class GitHubSpec extends PlaySpec {
     val perPage0 = 42
 
     def contributors(client: WSClient) = {
-      val gh = new GitHub(client, "", "", "", "", perPage0.toString)
+      val gh = new GitHub(client, "", "", "", perPage0.toString)
       Await.result(gh.contributorsByNCommits(orgName0), 10.seconds)
     }
 
