@@ -53,7 +53,11 @@ class GitHub private[services] (ws: WSClient, baseUrl: String, accept: String, u
   private def get[T](url: String)(f: JsValue => Future[Vector[T]]) = {
     def loop(page: Int, acc: Vector[T]): Future[Vector[T]] = {
       val baseRequest = ws.url(s"$baseUrl$url$queryBase$page")
-      val request = sys.env.get("GH_TOKEN").fold(baseRequest.addHttpHeaders(acceptHeader, userAgentHeader)) { ghToken =>
+      val ghTokenOpt = sys.env.get("GH_TOKEN")
+      lazy val ghToken = ghTokenOpt.get
+      val request = if (ghTokenOpt.isEmpty || ghToken.isEmpty)
+        baseRequest.addHttpHeaders(acceptHeader, userAgentHeader)
+      else {
         val authHeader = "authorization" -> s"token $ghToken"
         baseRequest.addHttpHeaders(authHeader, acceptHeader, userAgentHeader)
       }
