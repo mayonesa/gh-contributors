@@ -38,7 +38,7 @@ class GitHub private[services] (ws: WSClient, baseUrl: String, accept: String, u
       orgContributors <- contributorsByNCommits(repos)
     } yield orgContributors.sortedContributors
 
-  private def contributorsByNCommits(repos: Vector[Repo]): Future[SortedByNContributions] = {
+  private def contributorsByNCommits(repos: Vector[Repo]) = {
     // this will continue going through all the repos even after one fails
     repos.foldLeft(contributorsFutZero) { (accFut, repo) =>
       for {
@@ -48,13 +48,13 @@ class GitHub private[services] (ws: WSClient, baseUrl: String, accept: String, u
     }
   }
 
-  private def repos(orgName: String): Future[Vector[Repo]] =
+  private def repos(orgName: String) =
     get(s"/orgs/$orgName/repos")(_.validate[Vector[Repo]] match {
       case JsSuccess(repos, _) => Future.successful(repos)
       case e: JsError => handleDeserializationError(e, "Repos")
     })
 
-  private def contributorsByNCommits(repo: Repo): Future[SortedByNContributions] =
+  private def contributorsByNCommits(repo: Repo) =
     get(s"/repos/${repo.owner}/${repo.name}/contributors")(_.validate[Vector[ContributorInfo]] match {
       case JsSuccess(contributors, _) => Future.successful(contributors)
       case e: JsError => handleDeserializationError(e, "Contributor infos")
