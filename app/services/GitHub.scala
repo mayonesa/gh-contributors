@@ -68,7 +68,8 @@ class GitHub private[services] (ws: WSClient, baseUrl: String, accept: String, u
         .withRequestTimeout(10000.millis)
       val ghTokenOpt = sys.env.get("GH_TOKEN")
       lazy val ghToken = ghTokenOpt.get
-      val request = if (ghTokenOpt.isEmpty || ghToken.isEmpty)
+      val anonymousMode = ghTokenOpt.isEmpty || ghToken.isEmpty
+      val request = if (anonymousMode)
         baseRequest.addHttpHeaders(acceptHeader, userAgentHeader)
       else {
         val authHeader = "authorization" -> s"token $ghToken"
