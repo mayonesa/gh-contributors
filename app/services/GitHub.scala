@@ -5,7 +5,7 @@ import models.{ContributorInfo, Repo, SortedByNContributions}
 import play.api.http.Status.{NOT_FOUND, OK}
 import play.api.libs.functional.syntax._
 import play.api.libs.json._
-import play.api.libs.ws.WSClient
+import play.api.libs.ws.{WSClient, WSRequest}
 import play.api.{Configuration, Logging}
 
 import javax.inject.{Inject, Singleton}
@@ -22,6 +22,7 @@ class GitHub private[services] (ws: WSClient, baseUrl: String, accept: String, u
   private lazy val contributorsFutZero = Future.successful(SortedByNContributions.empty)
   private val acceptHeader = "accept" -> accept
   private val userAgentHeader = "user-agent" -> userAgent
+  private val perPageParam = "per_page" -> perPage
 
   implicit private val repoReads: Reads[Repo] = (
     (JsPath \ "name").read[String] and
@@ -38,7 +39,7 @@ class GitHub private[services] (ws: WSClient, baseUrl: String, accept: String, u
       orgContributors <- contributorsByNCommits(repos)
     } yield orgContributors.sortedContributors
 
-  private def contributorsByNCommits(repos: Vector[Repo]) = {
+  private def contributorsByNCommits(repos: Vector[Repo]): Future[SortedByNContributions] = {
     // this will continue going through all the repos even after one fails
     repos.foldLeft(contributorsFutZero) { (accFut, repo) =>
       for {
@@ -63,18 +64,9 @@ class GitHub private[services] (ws: WSClient, baseUrl: String, accept: String, u
   private def get[T](urlSuffix: String)(f: JsValue => Future[Vector[T]]) = {
     def loop(page: Int, acc: Vector[T]): Future[Vector[T]] = {
       val url = s"$baseUrl$urlSuffix"
-      val baseRequest = ws.url(url)
-        .withQueryStringParameters("per_page" -> perPage, "page" -> page.toString)
+      val request = addHeaders(ws.url(url))
+        .withQueryStringParameters(perPageParam, "page" -> page.toString)
         .withRequestTimeout(10000.millis)
-      val ghTokenOpt = sys.env.get("GH_TOKEN")
-      lazy val ghToken = ghTokenOpt.get
-      val anonymousMode = ghTokenOpt.isEmpty || ghToken.isEmpty
-      val request = if (anonymousMode)
-        baseRequest.addHttpHeaders(acceptHeader, userAgentHeader)
-      else {
-        val authHeader = "authorization" -> s"token $ghToken"
-        baseRequest.addHttpHeaders(authHeader, acceptHeader, userAgentHeader)
-      }
       val recordsFromPage = request.get().flatMap { resp =>
         val status = resp.status
         if (status == OK) f(resp.json)
@@ -94,6 +86,18 @@ class GitHub private[services] (ws: WSClient, baseUrl: String, accept: String, u
     }
 
     loop(1, Vector.empty)
+  }
+
+  private def addHeaders(baseRequest: WSRequest) = {
+    val ghTokenOpt = sys.env.get("GH_TOKEN")
+    lazy val ghToken = ghTokenOpt.get
+    val anonymousMode = ghTokenOpt.isEmpty || ghToken.isEmpty
+    if (anonymousMode)
+      baseRequest.addHttpHeaders(acceptHeader, userAgentHeader)
+    else {
+      val authHeader = "authorization" -> s"token $ghToken"
+      baseRequest.addHttpHeaders(authHeader, acceptHeader, userAgentHeader)
+    }
   }
 
   private def handleDeserializationError(e: JsError, entity: String) = {
