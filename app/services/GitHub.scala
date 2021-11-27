@@ -10,6 +10,7 @@ import play.api.{Configuration, Logging}
 
 import javax.inject.{Inject, Singleton}
 import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.duration._
 
 @Singleton
 class GitHub private[services] (ws: WSClient, baseUrl: String, accept: String, userAgent: String, perPage: String)
@@ -21,7 +22,6 @@ class GitHub private[services] (ws: WSClient, baseUrl: String, accept: String, u
   private lazy val contributorsFutZero = Future.successful(SortedByNContributions.empty)
   private val acceptHeader = "accept" -> accept
   private val userAgentHeader = "user-agent" -> userAgent
-  private val queryBase = s"?per_page=$perPage&page="
 
   implicit private val repoReads: Reads[Repo] = (
     (JsPath \ "name").read[String] and
@@ -38,21 +38,34 @@ class GitHub private[services] (ws: WSClient, baseUrl: String, accept: String, u
       orgContributors <- contributorsByNCommits(repos)
     } yield orgContributors.sortedContributors
 
-  def repos(orgName: String): Future[Vector[Repo]] =
+  private def contributorsByNCommits(repos: Vector[Repo]): Future[SortedByNContributions] = {
+    // this will continue going through all the repos even after one fails
+    repos.foldLeft(contributorsFutZero) { (accFut, repo) =>
+      for {
+        repoContributors <- contributorsByNCommits(repo)
+        acc <- accFut
+      } yield acc ++ repoContributors
+    }
+  }
+
+  private def repos(orgName: String): Future[Vector[Repo]] =
     get(s"/orgs/$orgName/repos")(_.validate[Vector[Repo]] match {
       case JsSuccess(repos, _) => Future.successful(repos)
       case e: JsError => handleDeserializationError(e, "Repos")
     })
 
-  def contributorsByNCommits(repo: Repo): Future[SortedByNContributions] =
+  private def contributorsByNCommits(repo: Repo): Future[SortedByNContributions] =
     get(s"/repos/${repo.owner}/${repo.name}/contributors")(_.validate[Vector[ContributorInfo]] match {
       case JsSuccess(contributors, _) => Future.successful(contributors)
       case e: JsError => handleDeserializationError(e, "Contributor infos")
     }).map(new SortedByNContributions(_))
 
-  private def get[T](url: String)(f: JsValue => Future[Vector[T]]) = {
+  private def get[T](urlSuffix: String)(f: JsValue => Future[Vector[T]]) = {
     def loop(page: Int, acc: Vector[T]): Future[Vector[T]] = {
-      val baseRequest = ws.url(s"$baseUrl$url$queryBase$page")
+      val url = s"$baseUrl$urlSuffix"
+      val baseRequest = ws.url(url)
+        .withQueryStringParameters("per_page" -> perPage, "page" -> page.toString)
+        .withRequestTimeout(10000.millis)
       val ghTokenOpt = sys.env.get("GH_TOKEN")
       lazy val ghToken = ghTokenOpt.get
       val request = if (ghTokenOpt.isEmpty || ghToken.isEmpty)
@@ -67,7 +80,7 @@ class GitHub private[services] (ws: WSClient, baseUrl: String, accept: String, u
         else {
           val ex = if (status == NOT_FOUND) new Gh404ResponseException
           else new OtherThanGh404ErrorException(resp.body)
-          logger.error(ex.getMessage)
+          logger.error(s"$status on $url: ${ex.getMessage}")
           Future.failed[Vector[T]](ex)
         }
       }
@@ -81,14 +94,6 @@ class GitHub private[services] (ws: WSClient, baseUrl: String, accept: String, u
 
     loop(1, Vector.empty)
   }
-
-  private def contributorsByNCommits(repos: Vector[Repo]): Future[SortedByNContributions] =
-    repos.foldLeft(contributorsFutZero) { (accFut, repo) =>
-      for {
-        repoContributors <- contributorsByNCommits(repo)
-        acc <- accFut
-      } yield acc ++ repoContributors
-    }
 
   private def handleDeserializationError(e: JsError, entity: String) = {
     val errMsg = s"$entity deserialization error: ${JsError.toJson(e)}"
