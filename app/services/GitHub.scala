@@ -5,8 +5,10 @@ import models.{ContributorInfo, Repo, SortedByNContributions}
 import play.api.http.Status.{NOT_FOUND, OK}
 import play.api.libs.functional.syntax._
 import play.api.libs.json._
-import play.api.libs.ws.{WSClient, WSRequest}
+import play.api.libs.ws.{WSClient, WSRequest, WSResponse}
 import play.api.{Configuration, Logging}
+import zio.Task
+import zio.Runtime.default.unsafeRunToFuture
 
 import javax.inject.{Inject, Singleton}
 import scala.concurrent.{ExecutionContext, Future}
@@ -19,7 +21,6 @@ class GitHub private[services] (ws: WSClient, baseUrl: String, accept: String, u
     this(ws, config.get[String]("github.baseUrl"), config.get[String]("github.accept"),
       config.get[String]("github.userAgent"), config.get[String]("github.perPage"))(ec)
 
-  private lazy val contributorsFutZero = Future.successful(SortedByNContributions.empty)
   private val acceptHeader = "accept" -> accept
   private val userAgentHeader = "user-agent" -> userAgent
   private val perPageParam = "per_page" -> perPage
@@ -34,55 +35,56 @@ class GitHub private[services] (ws: WSClient, baseUrl: String, accept: String, u
     )(ContributorInfo.apply _)
 
   def contributorsByNCommits(orgName: String): Future[Vector[ContributorInfo]] =
-    for {
+    unsafeRunToFuture(for {
       repos <- repos(orgName)
       orgContributors <- contributorsByNCommits(repos)
-    } yield orgContributors.sortedContributors
+    } yield orgContributors.sortedContributors)
 
-  private def contributorsByNCommits(repos: Vector[Repo]): Future[SortedByNContributions] = {
-    // this will continue going through all the repos even after one fails
-    repos.foldLeft(contributorsFutZero) { (accFut, repo) =>
-      for {
-        repoContributors <- contributorsByNCommits(repo)
-        acc <- accFut
-      } yield acc ++ repoContributors
+  private def contributorsByNCommits(repos: Vector[Repo]): Task[SortedByNContributions] =
+    // TODO: parallelize
+    Task.foldLeft(repos)(SortedByNContributions.empty) { (acc, repo) =>
+      contributorsByNCommits(repo).map(acc ++ _)
     }
-  }
 
   private def repos(orgName: String) =
     get(s"/orgs/$orgName/repos")(_.validate[Vector[Repo]] match {
-      case JsSuccess(repos, _) => Future.successful(repos)
+      case JsSuccess(repos, _) => Task.succeed(repos)
       case e: JsError => handleDeserializationError(e, "Repos")
     })
 
   private def contributorsByNCommits(repo: Repo) =
     get(s"/repos/${repo.owner}/${repo.name}/contributors")(_.validate[Vector[ContributorInfo]] match {
-      case JsSuccess(contributors, _) => Future.successful(contributors)
+      case JsSuccess(contributors, _) => Task.succeed(contributors)
       case e: JsError => handleDeserializationError(e, "Contributor infos")
     }).map(new SortedByNContributions(_))
 
-  private def get[T](urlSuffix: String)(f: JsValue => Future[Vector[T]]) = {
-    def loop(page: Int, acc: Vector[T]): Future[Vector[T]] = {
-      val url = s"$baseUrl$urlSuffix"
+  private def get[T](urlSuffix: String)(f: JsValue => Task[Vector[T]]) = {
+    val url = s"$baseUrl$urlSuffix"
+
+    def handle(response: WSResponse) = {
+      val status = response.status
+      if (status == OK) f(response.json)
+      else {
+        val ex = if (status == NOT_FOUND) new Gh404ResponseException
+        else new OtherThanGh404ErrorException(response.body)
+        logger.error(s"$status on $url: ${ex.getMessage}")
+        Task.fail(ex)
+      }
+    }
+
+    def loop(page: Int, acc: Vector[T]): Task[Vector[T]] = {
       val request = addHeaders(ws.url(url))
         .withQueryStringParameters(perPageParam, "page" -> page.toString)
         .withRequestTimeout(10000.millis)
-      val recordsFromPage = request.get().flatMap { resp =>
-        val status = resp.status
-        if (status == OK) f(resp.json)
-        else {
-          val ex = if (status == NOT_FOUND) new Gh404ResponseException
-          else new OtherThanGh404ErrorException(resp.body)
-          logger.error(s"$status on $url: ${ex.getMessage}")
-          Future.failed[Vector[T]](ex)
-        }
-      }
-      recordsFromPage.flatMap { xs =>
-        if (xs.nonEmpty) {
-          val nextPage = loop(page + 1, acc ++ xs)
+
+      for {
+        resp <- Task.fromFuture(implicit ec => request.get())
+        recordsFromPage <- handle(resp)
+        recordsAcc <- if (recordsFromPage.nonEmpty) {
+          val nextPage = loop(page + 1, acc ++ recordsFromPage)
           nextPage
-        } else Future.successful(acc)
-      }
+        } else Task.succeed(acc)
+      } yield recordsAcc
     }
 
     loop(1, Vector.empty)
@@ -103,6 +105,6 @@ class GitHub private[services] (ws: WSClient, baseUrl: String, accept: String, u
   private def handleDeserializationError(e: JsError, entity: String) = {
     val errMsg = s"$entity deserialization error: ${JsError.toJson(e)}"
     logger.error(errMsg)
-    Future.failed(new Exception(errMsg))
+    Task.fail(new Exception(errMsg))
   }
 }

@@ -11,6 +11,7 @@ libraryDependencies ++= Seq(
   ws,
   guice,
   "org.typelevel" %% "cats-core" % "2.6.1", // for aggregating contributions at contributor level
+  "dev.zio" %% "zio" % "1.0.12", // to cancel other parallel processes if one fails
   "org.scalatestplus.play" %% "scalatestplus-play" % "5.1.0" % "test"
 )
 
