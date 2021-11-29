@@ -21,6 +21,7 @@ class GitHub private[services] (ws: WSClient, baseUrl: String, accept: String, u
     this(ws, config.get[String]("github.baseUrl"), config.get[String]("github.accept"),
       config.get[String]("github.userAgent"), config.get[String]("github.perPage"))(ec)
 
+  private lazy val contributorsTaskZero = Task.succeed(SortedByNContributions.empty)
   private val acceptHeader = "accept" -> accept
   private val userAgentHeader = "user-agent" -> userAgent
   private val perPageParam = "per_page" -> perPage
@@ -41,10 +42,7 @@ class GitHub private[services] (ws: WSClient, baseUrl: String, accept: String, u
     } yield orgContributors.sortedContributors)
 
   private def contributorsByNCommits(repos: Vector[Repo]): Task[SortedByNContributions] =
-    // TODO: parallelize
-    Task.foldLeft(repos)(SortedByNContributions.empty) { (acc, repo) =>
-      contributorsByNCommits(repo).map(acc ++ _)
-    }
+    Task.reduceAllPar(contributorsTaskZero, repos.map(contributorsByNCommits))(_ ++ _)
 
   private def repos(orgName: String) =
     get(s"/orgs/$orgName/repos")(_.validate[Vector[Repo]] match {
