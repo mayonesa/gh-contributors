@@ -45,23 +45,21 @@ class GitHub private[services] (ws: WSClient, baseUrl: String, accept: String, u
     Task.reduceAllPar(contributorsTaskZero, repos.map(contributorsByNCommits))(_ ++ _)
 
   private def repos(orgName: String) =
-    get(s"/orgs/$orgName/repos")(_.validate[Vector[Repo]] match {
-      case JsSuccess(repos, _) => Task.succeed(repos)
-      case e: JsError => handleDeserializationError(e, "Repos")
-    })
+    get(s"/orgs/$orgName/repos", "Repos")(_.validate[Vector[Repo]])
 
   private def contributorsByNCommits(repo: Repo) =
-    get(s"/repos/${repo.owner}/${repo.name}/contributors")(_.validate[Vector[ContributorInfo]] match {
-      case JsSuccess(contributors, _) => Task.succeed(contributors)
-      case e: JsError => handleDeserializationError(e, "Contributor infos")
-    }).map(new SortedByNContributions(_))
+    get(s"/repos/${repo.owner}/${repo.name}/contributors", "Contributor infos")(_.validate[Vector[ContributorInfo]])
+      .map(new SortedByNContributions(_))
 
-  private def get[T](urlSuffix: String)(f: JsValue => Task[Vector[T]]) = {
+  private def get[T](urlSuffix: String, entity: String)(validate: JsValue => JsResult[Vector[T]]) = {
     val url = s"$baseUrl$urlSuffix"
 
     def handle(response: WSResponse) = {
       val status = response.status
-      if (status == OK) f(response.json)
+      if (status == OK) validate(response.json) match {
+        case JsSuccess(xs, _) => Task.succeed(xs)
+        case e: JsError => handleDeserializationError(e, entity)
+      }
       else {
         val ex = if (status == NOT_FOUND) new Gh404ResponseException
         else new OtherThanGh404ErrorException(response.body)
