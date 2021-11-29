@@ -1,7 +1,7 @@
 package services
 
-import exceptions.{Gh404ResponseException, OtherThanGh404ErrorException}
-import models.{ContributorInfo, Repo, SortedByNContributions}
+import exceptions._
+import models._
 import play.api.http.Status.{NOT_FOUND, OK}
 import play.api.libs.functional.syntax._
 import play.api.libs.json._
