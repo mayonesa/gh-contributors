@@ -9,7 +9,7 @@ import SortedByNContributions.{NoAndAggDupesZero, contributorOrdering}
 
 // sorted contributors by descending number of contributions
 class SortedByNContributions(val sortedContributors: Vector[ContributorInfo]) {
-  // exploits pre-sorted condition of the data structure (`Map.sortBy` does not). time complexity: O(mn).
+  // exploits pre-sorted condition of the data structure (`Map.sortBy` does not). time complexity: O(n).
   // algo:
   // 1st pass: merge the 2 lists of sorted contributors into sorted contributors list where dupes are not aggregated.
   //           Dupe aggregation does not happen in this stage because the cost (and complexity) associated w/ in-place
