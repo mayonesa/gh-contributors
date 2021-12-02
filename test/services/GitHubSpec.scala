@@ -226,7 +226,7 @@ class GitHubSpec extends PlaySpec {
                 owner mustBe owner2
                 repo2Contributors
               } else
-                fail()
+                fail("repo names were not the ones expected")
             }
           }
       })(_ mustBe Vector(ContributorInfo(name1, c1 * 2), ContributorInfo(name3, 2 * c3 + c3_1), ci2, ci4))
