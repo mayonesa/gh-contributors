@@ -209,13 +209,16 @@ class GitHubSpec extends PlaySpec {
               case 1 => firstPageRepos
               case 2 => secondPageRepos
               case 3 => empty
+              case _ => fail("expectation: only 3 pages")
             })
           }
         case GET(p"/repos/$owner/$repoName/contributors" ? q"page=${int(page)}") =>
           Action {
             Ok(if (page == 2)
               empty
-            else if (repoName == repoName1) {
+             else if(page > 2)
+              fail("expectation: only 2 pages")
+             else if (repoName == repoName1) {
               owner mustBe owner1
               repo1Contributors
             } else if (repoName == repoName2) {
