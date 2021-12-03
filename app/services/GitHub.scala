@@ -2,7 +2,7 @@ package services
 
 import exceptions._
 import models._
-import play.api.http.Status.{NOT_FOUND, OK}
+import play.api.http.Status.{NO_CONTENT, OK}
 import play.api.libs.functional.syntax._
 import play.api.libs.json._
 import play.api.libs.ws.{WSClient, WSRequest, WSResponse}
@@ -56,14 +56,18 @@ class GitHub private[services] (ws: WSClient, baseUrl: String, accept: String, u
 
     def handle(response: WSResponse) = {
       val status = response.status
-      if (status == OK) validate(response.json) match {
-        case JsSuccess(xs, _) => Task.succeed(xs)
-        case e: JsError => handleDeserializationError(e, entity)
-      }
+      if (status == OK || status == NO_CONTENT)
+        status match {
+          case OK => validate(response.json) match {
+            case JsSuccess(xs, _) => Task.succeed(xs)
+            case e: JsError => handleDeserializationError(e, entity)
+          }
+          case NO_CONTENT => Task.succeed(Vector.empty)
+        }
       else {
-        val ex = if (status == NOT_FOUND) new Gh404ResponseException
-        else new OtherThanGh404ErrorException(response.body)
-        logger.error(s"$status on $url: ${ex.getMessage}")
+        val msg = response.body
+        val ex = GhResponseExceptions.getOrElse(status, new Gh500ResponseException(_))(msg)
+        logger.error(s"$status on $url: $msg")
         Task.fail(ex)
       }
     }

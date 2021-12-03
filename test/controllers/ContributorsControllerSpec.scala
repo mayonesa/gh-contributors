@@ -1,6 +1,6 @@
 package controllers
 
-import exceptions.{Gh404ResponseException, OtherThanGh404ErrorException}
+import exceptions.{Gh404ResponseException, Gh502ResponseException, GhResponseException}
 import models.ContributorInfo
 import org.scalatestplus.play._
 import play.api.mvc._
@@ -50,7 +50,7 @@ class ContributorsControllerSpec extends PlaySpec with Results {
       Json.parse(bodyText) mustBe expResp
     }
 
-    def not2XX(exception: Exception, errMsg: String) = {
+    def not2XX(exception: GhResponseException, errMsg: String) = {
       val contributorsFut: String => ContributorsFuture = { _ =>
         Future.failed(exception)
       }
@@ -63,9 +63,9 @@ class ContributorsControllerSpec extends PlaySpec with Results {
     "404 when 404" in {
       not2XX(new Gh404ResponseException, "Record does not exist or user agent not authenticated")
     }
-    "500 when not 200 or 404" in {
+    "502 when 502" in {
       val errMsg = "err_msg"
-      not2XX(new OtherThanGh404ErrorException(errMsg), errMsg)
+      not2XX(new Gh502ResponseException(errMsg), errMsg)
     }
   }
 }

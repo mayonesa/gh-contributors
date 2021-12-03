@@ -1,16 +1,15 @@
 package controllers
 
+import exceptions.GhResponseException
+
 import javax.inject._
 import scala.concurrent.ExecutionContext
 import scala.util.{Failure, Success, Try}
-
 import play.api.mvc._
 import play.api.libs.json._
 import play.api.cache._
-
 import models.ContributorInfo
 import services.GitHub
-import exceptions.Gh404ResponseException
 
 @Singleton
 class ContributorsController private[controllers] (contributorsFut: String => ContributorsFuture,
@@ -32,14 +31,7 @@ class ContributorsController private[controllers] (contributorsFut: String => Co
   def byNContributions(orgName: String): Action[AnyContent] = Action.async {
     contributorsFut(orgName).transform {
       case Success(contributors) => Try(Ok(Json.toJson(contributors)))
-      case Failure(ex) =>
-        val msg = ex.getMessage
-        Try {
-          ex match {
-            case _: Gh404ResponseException => NotFound(msg)
-            case _ => InternalServerError(msg)
-          }
-        }
+      case Failure(ex) => Try(ex.asInstanceOf[GhResponseException].result)
     }
   }
 }

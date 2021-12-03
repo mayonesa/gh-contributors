@@ -1,6 +1,6 @@
 package services
 
-import exceptions.{Gh404ResponseException, OtherThanGh404ErrorException}
+import exceptions.{Gh404ResponseException, Gh500ResponseException, Gh502ResponseException, GhResponseException}
 import models.ContributorInfo
 import org.scalatest.matchers.dsl.ResultOfATypeInvocation
 import org.scalatestplus.play._
@@ -29,7 +29,7 @@ class GitHubSpec extends PlaySpec {
         assertContributors(contributors)
       }
 
-    def testException[T <: Exception](serverResponse: Status, exception: ResultOfATypeInvocation[T]): Unit = {
+    def testException[T <: GhResponseException](serverResponse: Status, exception: ResultOfATypeInvocation[T]): Unit = {
       testWithServerMock(Action => {
         case GET(p"/orgs/$_/repos") => Action(serverResponse)
       }) { gh =>
@@ -234,8 +234,11 @@ class GitHubSpec extends PlaySpec {
     "empty when org not found or user not authenticated. IOW, 404" in {
       testException(NotFound, a[Gh404ResponseException])
     }
-    "exception when other than 200 or 404" in {
-      testException(InternalServerError, a[OtherThanGh404ErrorException])
+    "Bad gateway when 502" in {
+      testException(BadGateway, a[Gh502ResponseException])
+    }
+    "Internal server error when not covered" in {
+      testException(ImATeapot, a[Gh500ResponseException])
     }
   }
 }
