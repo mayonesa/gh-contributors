@@ -1,6 +1,6 @@
 package services
 
-import exceptions._
+import exceptions.ghResponseExceptions
 import models._
 import play.api.http.Status.{NO_CONTENT, OK}
 import play.api.libs.functional.syntax._
@@ -66,7 +66,7 @@ class GitHub private[services] (ws: WSClient, baseUrl: String, accept: String, u
         }
       else {
         val msg = response.body
-        val ex = GhResponseExceptions.getOrElse(status, new Gh500ResponseException(_))(msg)
+        val ex = ghResponseExceptions(status)(msg)
         logger.error(s"$status on $url: $msg")
         Task.fail(ex)
       }
