@@ -12,7 +12,6 @@ import zio.Runtime.default.unsafeRunToFuture
 
 import javax.inject.{Inject, Singleton}
 import scala.concurrent.{ExecutionContext, Future}
-import scala.concurrent.duration._
 
 @Singleton
 class GitHub private[services] (ws: WSClient, baseUrl: String, accept: String, userAgent: String, perPage: String)
@@ -41,8 +40,10 @@ class GitHub private[services] (ws: WSClient, baseUrl: String, accept: String, u
       orgContributors <- contributorsByNCommits(repos)
     } yield orgContributors.sortedContributors)
 
-  private def contributorsByNCommits(repos: Vector[Repo]): Task[SortedByNContributions] =
-    Task.reduceAllPar(contributorsTaskZero, repos.map(contributorsByNCommits))(_ ++ _)
+  private def contributorsByNCommits(repos: Vector[Repo]): Task[SortedByNContributions] = {
+    // parallel requests make GH angry
+    Task.reduceAll(contributorsTaskZero, repos.map(contributorsByNCommits))(_ ++ _)
+  }
 
   private def repos(orgName: String) =
     get(s"/orgs/$orgName/repos", "Repos")(_.validate[Vector[Repo]])
@@ -75,7 +76,6 @@ class GitHub private[services] (ws: WSClient, baseUrl: String, accept: String, u
     def loop(page: Int, acc: Vector[T]): Task[Vector[T]] = {
       val request = addHeaders(ws.url(url))
         .withQueryStringParameters(perPageParam, "page" -> page.toString)
-        .withRequestTimeout(10000.millis)
 
       for {
         resp <- Task.fromFuture(implicit ec => request.get())
