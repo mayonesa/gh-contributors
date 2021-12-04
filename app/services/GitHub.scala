@@ -57,7 +57,8 @@ class GitHub private[services] (ws: WSClient, baseUrl: String, accept: String, u
 
     def handle(response: WSResponse) = {
       val status = response.status
-      if (status == OK || status == NO_CONTENT)
+      val goodResponse = status == OK || status == NO_CONTENT
+      if (goodResponse)
         status match {
           case OK => validate(response.json) match {
             case JsSuccess(xs, _) => Task.succeed(xs)
