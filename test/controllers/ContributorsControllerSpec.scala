@@ -61,11 +61,11 @@ class ContributorsControllerSpec extends PlaySpec with Results {
     }
 
     "404 when 404" in {
-      not2XX(new Gh404ResponseException, "Record does not exist or user agent not authenticated")
+      not2XX(Gh404ResponseException(), "Record does not exist or user agent not authenticated")
     }
     "502 when 502" in {
       val errMsg = "err_msg"
-      not2XX(new Gh502ResponseException(errMsg), errMsg)
+      not2XX(Gh502ResponseException(errMsg), errMsg)
     }
   }
 }
