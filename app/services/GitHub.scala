@@ -36,7 +36,7 @@ class GitHub private[services] (ws: WSClient, baseUrl: String, accept: String, u
     logger.info("running in anonymous mode")
     _.addHttpHeaders(acceptHeader, userAgentHeader)
   } else {
-    logger.info("running in authenticate mode")
+    logger.info("running in authenticated mode")
     val authHeader = "authorization" -> s"token $ghToken"
     _.addHttpHeaders(authHeader, acceptHeader, userAgentHeader)
   }
