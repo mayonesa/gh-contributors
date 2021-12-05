@@ -21,9 +21,25 @@ class GitHub private[services] (ws: WSClient, baseUrl: String, accept: String, u
       config.get[String]("github.userAgent"), config.get[String]("github.perPage"))(ec)
 
   private lazy val contributorsTaskZero = Task.succeed(SortedByNContributions.empty)
+  private val perPageParam = "per_page" -> perPage
+
+  // authentication
+  private val ghTokenOpt = sys.env.get("GH_TOKEN")
+  private lazy val ghToken = ghTokenOpt.get
+  private val anonymousMode = ghTokenOpt.isEmpty || ghToken.isEmpty
+
   private val acceptHeader = "accept" -> accept
   private val userAgentHeader = "user-agent" -> userAgent
-  private val perPageParam = "per_page" -> perPage
+
+  // avoids determining authentication mode for every get
+  private val addHeaders: WSRequest => WSRequest = if (anonymousMode) {
+    logger.info("running in anonymous mode")
+    _.addHttpHeaders(acceptHeader, userAgentHeader)
+  } else {
+    logger.info("running in authenticate mode")
+    val authHeader = "authorization" -> s"token $ghToken"
+    _.addHttpHeaders(authHeader, acceptHeader, userAgentHeader)
+  }
 
   implicit private val repoReads: Reads[Repo] = (
     (JsPath \ "name").read[String] and
@@ -41,7 +57,8 @@ class GitHub private[services] (ws: WSClient, baseUrl: String, accept: String, u
     } yield orgContributors.sortedContributors)
 
   private def contributorsByNCommits(repos: Vector[Repo]): Task[SortedByNContributions] = {
-    // parallel requests make GH angry
+    // parallel requests may make GH angry
+    // https://docs.github.com/en/rest/overview/resources-in-the-rest-api#secondary-rate-limits
     Task.reduceAll(contributorsTaskZero, repos.map(contributorsByNCommits))(_ ++ _)
   }
 
@@ -89,18 +106,6 @@ class GitHub private[services] (ws: WSClient, baseUrl: String, accept: String, u
     }
 
     loop(1, Vector.empty)
-  }
-
-  private def addHeaders(baseRequest: WSRequest) = {
-    val ghTokenOpt = sys.env.get("GH_TOKEN")
-    lazy val ghToken = ghTokenOpt.get
-    val anonymousMode = ghTokenOpt.isEmpty || ghToken.isEmpty
-    if (anonymousMode)
-      baseRequest.addHttpHeaders(acceptHeader, userAgentHeader)
-    else {
-      val authHeader = "authorization" -> s"token $ghToken"
-      baseRequest.addHttpHeaders(authHeader, acceptHeader, userAgentHeader)
-    }
   }
 
   private def handleDeserializationError(e: JsError, entity: String) = {
