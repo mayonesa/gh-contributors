@@ -57,9 +57,16 @@ class GitHub private[services] (ws: WSClient, baseUrl: String, accept: String, u
     } yield orgContributors.sortedContributors)
 
   private def contributorsByNCommits(repos: Vector[Repo]): Task[SortedByNContributions] = {
-    // parallel requests may make GH angry
-    // https://docs.github.com/en/rest/overview/resources-in-the-rest-api#secondary-rate-limits
-    Task.reduceAll(contributorsTaskZero, repos.map(contributorsByNCommits))(_ ++ _)
+    val contributorsByRepo = repos.map(contributorsByNCommits)
+    val nRepos = repos.size
+    logger.info(s"querying $nRepos repos")
+    // heuristic to speed things up while attempting to work around GH's serving idiosyncrasies
+    if (nRepos < 1000)
+      // need for speed
+      Task.reduceAllPar(contributorsTaskZero, contributorsByRepo)(_ ++ _)
+    else
+      // too many parallel requests makes GH angry
+      Task.reduceAll(contributorsTaskZero, contributorsByRepo)(_ ++ _)
   }
 
   private def repos(orgName: String) =
