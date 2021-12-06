@@ -3,70 +3,46 @@ package services
 import exceptions.ghResponseExceptions
 import models._
 import play.api.http.Status.{NO_CONTENT, OK}
-import play.api.libs.functional.syntax._
 import play.api.libs.json._
-import play.api.libs.ws.{WSClient, WSRequest, WSResponse}
+import play.api.libs.ws.{WSClient, WSResponse}
 import play.api.{Configuration, Logging}
-import zio.Task
+import zio.{Task, ZIO}
 import zio.Runtime.default.unsafeRunToFuture
 
 import javax.inject.{Inject, Singleton}
 import scala.concurrent.{ExecutionContext, Future}
 
 @Singleton
-class GitHub private[services] (ws: WSClient, baseUrl: String, accept: String, userAgent: String, perPage: String)
+class GitHub private[services] (ws: WSClient,
+                                parallelReposLimit: Int,
+                                baseUrl: String,
+                                accept: String,
+                                userAgent: String,
+                                perPage: String)
                                (implicit ec: ExecutionContext) extends Logging {
   @Inject def this(ws: WSClient, config: Configuration, ec: ExecutionContext) =
-    this(ws, config.get[String]("github.baseUrl"), config.get[String]("github.accept"),
-      config.get[String]("github.userAgent"), config.get[String]("github.perPage"))(ec)
+    this(ws, config.get[Int](ParallelReposLimitKey), config.get[String](BaseUrlKey), config.get[String](AcceptKey),
+      config.get[String](UserAgentKey), config.get[String](PerPageKey))(ec)
 
-  private lazy val contributorsTaskZero = Task.succeed(SortedByNContributions.empty)
   private val perPageParam = "per_page" -> perPage
-
-  // authentication
-  private val ghTokenOpt = sys.env.get("GH_TOKEN")
-  private lazy val ghToken = ghTokenOpt.get
-  private val anonymousMode = ghTokenOpt.isEmpty || ghToken.isEmpty
-
-  private val acceptHeader = "accept" -> accept
   private val userAgentHeader = "user-agent" -> userAgent
+  private val acceptHeader = "accept" -> accept
 
-  // avoids determining authentication mode for every get
-  private val addHeaders: WSRequest => WSRequest = if (anonymousMode) {
-    logger.info("running in anonymous mode")
-    _.addHttpHeaders(acceptHeader, userAgentHeader)
-  } else {
-    logger.info("running in authenticated mode")
-    val authHeader = "authorization" -> s"token $ghToken"
-    _.addHttpHeaders(authHeader, acceptHeader, userAgentHeader)
-  }
-
-  implicit private val repoReads: Reads[Repo] = (
-    (JsPath \ "name").read[String] and
-      (JsPath \ "owner" \ "login").read[String]
-    )(Repo.apply _)
-  implicit private val contributorReads: Reads[ContributorInfo] = (
-    (JsPath \ "login").read[String] and
-      (JsPath \ "contributions").read[Int]
-    )(ContributorInfo.apply _)
-
-  def contributorsByNCommits(orgName: String): Future[Vector[ContributorInfo]] =
+  def contributorsByNCommits(orgName: String): Future[Vector[ContributorInfo]] = {
+    logger.info("getting contributors for " + orgName)
     unsafeRunToFuture(for {
       repos <- repos(orgName)
       orgContributors <- contributorsByNCommits(repos)
     } yield orgContributors.sortedContributors)
+  }
 
   private def contributorsByNCommits(repos: Vector[Repo]): Task[SortedByNContributions] = {
-    val contributorsByRepo = repos.map(contributorsByNCommits)
-    val nRepos = repos.size
-    logger.info(s"querying $nRepos repos")
-    // heuristic to speed things up while attempting to work around GH's serving idiosyncrasies
-    if (nRepos < 1000)
-      // need for speed
-      Task.reduceAllPar(contributorsTaskZero, contributorsByRepo)(_ ++ _)
-    else
-      // too many parallel requests makes GH angry
-      Task.reduceAll(contributorsTaskZero, contributorsByRepo)(_ ++ _)
+    val contributorsByRepo = repos.view.map(contributorsByNCommits)
+    logger.info(s"querying ${repos.size} repos")
+    // chunking heuristic to speed things up while attempting to work around GH's serving idiosyncrasies (namely, their
+    // aversion to parallel requests)
+    ZIO.reduceAllParN[Any, Any, Throwable, SortedByNContributions](parallelReposLimit)(ContributorsTaskZero,
+      contributorsByRepo)(_ ++ _)
   }
 
   private def repos(orgName: String) =
@@ -99,7 +75,7 @@ class GitHub private[services] (ws: WSClient, baseUrl: String, accept: String, u
     }
 
     def loop(page: Int, acc: Vector[T]): Task[Vector[T]] = {
-      val request = addHeaders(ws.url(url))
+      val request = authenticationMode(ws.url(url).addHttpHeaders(userAgentHeader, acceptHeader))
         .withQueryStringParameters(perPageParam, "page" -> page.toString)
 
       for {

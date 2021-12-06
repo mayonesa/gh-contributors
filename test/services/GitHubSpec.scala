@@ -45,7 +45,7 @@ class GitHubSpec extends PlaySpec {
         serverMock(components.defaultActionBuilder)
       } { implicit port =>
         WsTestClient.withClient { client =>
-          val gh = new GitHub(client, "", "", "", perPage0.toString)
+          val gh = new GitHub(client, 1000, "", "", "", perPage0.toString)
           forContributors(gh)
         }
       }

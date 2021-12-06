@@ -8,7 +8,6 @@ import scala.util.{Failure, Success, Try}
 import play.api.mvc._
 import play.api.libs.json._
 import play.api.cache._
-import models.ContributorInfo
 import services.GitHub
 
 @Singleton
@@ -20,8 +19,6 @@ class ContributorsController private[controllers] (contributorsFut: String => Co
     this(orgName =>
       cache.getOrElseUpdate (s"contributors.$orgName")(gh.contributorsByNCommits(orgName)),
       cc)(exec)
-
-  private implicit val contributorWrites: OWrites[ContributorInfo] = Json.writes[ContributorInfo]
 
   /**
    * Creates an Action that, given an organization name, returns a list of its contributors sorted by descending number
