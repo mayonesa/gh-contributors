@@ -1,91 +1,101 @@
-package models
+package services
 
+import exceptions.{Gh404ResponseException, Gh500ResponseException, Gh502ResponseException, GhResponseException}
+import models.ContributorInfo
+import org.scalatest.matchers.dsl.ResultOfATypeInvocation
 import org.scalatestplus.play._
-import play.core.server.Server
-import play.api.routing.sird._
-import play.api.mvc._
 import play.api.libs.json._
+import play.api.mvc._
+import play.api.routing.sird._
 import play.api.test._
+import play.core.server.Server
 
 import scala.concurrent.Await
 import scala.concurrent.duration._
 
 class GitHubSpec extends PlaySpec {
-  import scala.concurrent.ExecutionContext.Implicits.global
-
-  private val orgName = "org_name"
-
   "`contributorsByNCommits`" must {
+    import scala.concurrent.ExecutionContext.Implicits.global
+    import Results._
+
     val empty = Json.arr()
-    "no repos w/ all req'd params" in {
-      Server.withRouterFromComponents() { components =>
-        import Results._
-        import components.{ defaultActionBuilder => Action }
-        {
-          case GET(p"/orgs/$orgName0/repos" ? q"page=${int(page)}" & q"per_page=${int(perPage)}") =>
-            orgName mustBe orgName0
-            page mustBe 1
-            perPage mustBe 100
-            Action {
-              Ok(empty)
-            }
-        }
-      } { implicit port =>
-        WsTestClient.withClient { client =>
-          val contributors = Await.result(new GitHub(client, "").contributorsByNCommits(orgName), 10.seconds)
-          contributors.size mustBe 0
+    val orgName0 = "org_name"
+    val perPage0 = 42
+
+    def testHappy(serverMock: DefaultActionBuilder => PartialFunction[RequestHeader, Handler])
+                 (assertContributors: Vector[ContributorInfo] => Unit): Unit =
+      testWithServerMock(serverMock) { gh =>
+        val contributors = Await.result(gh.contributorsByNCommits(orgName0), 10.seconds)
+        assertContributors(contributors)
+      }
+
+    def testException[T <: GhResponseException](serverResponse: Status, exception: ResultOfATypeInvocation[T]): Unit = {
+      testWithServerMock(Action => {
+        case GET(p"/orgs/$_/repos") => Action(serverResponse)
+      }) { gh =>
+        exception must be thrownBy {
+          Await.result(gh.contributorsByNCommits(orgName0), 10.seconds)
         }
       }
+    }
+
+    def testWithServerMock(serverMock: DefaultActionBuilder => PartialFunction[RequestHeader, Handler])
+                          (forContributors: GitHub => Unit): Unit =
+      Server.withRouterFromComponents() { components =>
+        serverMock(components.defaultActionBuilder)
+      } { implicit port =>
+        WsTestClient.withClient { client =>
+          val gh = new GitHub(client, 1000, "", "", "", perPage0.toString)
+          forContributors(gh)
+        }
+      }
+
+    "no repos w/ all req'd params" in {
+      testHappy(Action => {
+        case GET(p"/orgs/$orgName/repos" ? q"page=${int(page)}" & q"per_page=${int(perPage)}") =>
+          orgName mustBe orgName0
+          page mustBe 1
+          perPage mustBe perPage0
+          Action(Ok(empty))
+      })(_.isEmpty mustBe true)
     }
     "no contributors" in {
       val repoName = "repo_name"
       val owner = "owner"
 
-      Server.withRouterFromComponents() { components =>
-        import Results._
-        import components.{ defaultActionBuilder => Action }
-        {
-          case GET(p"/orgs/org_name/repos" ? q"page=${int(page)}") =>
-            Action {
-              val first = Json.parse(
-                s"""
-                [
-                  {
-                    "id": 1296269,
-                    "name": "$repoName",
-                    "full_name": "octocat/Hello-World",
-                    "owner": {
-                      "login": "$owner",
-                      "id": 1
-                    },
-                    "private": false,
-                    "html_url": "https://github.com/octocat/Hello-World"
+      testHappy(action => {
+        case GET(p"/orgs/org_name/repos" ? q"page=${int(page)}") =>
+          action {
+            val first = Json.parse(
+              s"""
+              [
+                {
+                  "id": 1296269,
+                  "name": "$repoName",
+                  "full_name": "octocat/Hello-World",
+                  "owner": {
+                    "login": "$owner",
+                    "id": 1
                   },
-                  {
-                    "id": 1296270,
-                    "name": "repo_name0",
-                    "full_name": "octocat/Hello-World",
-                    "owner": {
-                      "login": "owner_0",
-                      "id": 1
-                    },
-                    "private": false,
-                    "html_url": "https://github.com/octocat/Hello-World"
-                  }
-                ]""")
-              Ok(if (page == 1) first else empty)
-            }
-          case GET(p"/repos/$_/$_/contributors") =>
-            Action {
-              Ok(empty)
-            }
-        }
-      } { implicit port =>
-        WsTestClient.withClient { client =>
-          val contributors = Await.result(new GitHub(client, "").contributorsByNCommits(orgName), 10.seconds)
-          contributors.size mustBe 0
-        }
-      }
+                  "private": false,
+                  "html_url": "https://github.com/octocat/Hello-World"
+                },
+                {
+                  "id": 1296270,
+                  "name": "repo_name0",
+                  "full_name": "octocat/Hello-World",
+                  "owner": {
+                    "login": "owner_0",
+                    "id": 1
+                  },
+                  "private": false,
+                  "html_url": "https://github.com/octocat/Hello-World"
+                }
+              ]""")
+            Ok(if (page == 1) first else empty)
+          }
+        case GET(p"/repos/$_/$_/contributors") => action(Ok(empty))
+      })(_.isEmpty mustBe true)
     }
     "multi-repos w/ multi-contributors" in {
       val repoName1 = "repo_name1"
@@ -162,15 +172,12 @@ class GitHubSpec extends PlaySpec {
            |]
            |""".stripMargin)
 
-      Server.withRouterFromComponents() { components =>
-        import Results._
-        import components.{ defaultActionBuilder => Action }
-        {
-          case GET(p"/orgs/org_name/repos" ? q"page=${int(page)}") =>
-            Action {
-              val firstPageRepos = Json.parse(
-                s"""
-                [
+      testHappy(Action => {
+        case GET(p"/orgs/org_name/repos" ? q"page=${int(page)}") =>
+          Action {
+            val firstPageRepos = Json.parse(
+              s"""
+              [
                   {
                     "id": 1296269,
                     "name": "$repoName1",
@@ -183,8 +190,8 @@ class GitHubSpec extends PlaySpec {
                     "html_url": "https://github.com/octocat/Hello-World"
                   }
                 ]""")
-              val secondPageRepos = Json.parse(
-                s"""
+            val secondPageRepos = Json.parse(
+              s"""
                 [
                   {
                     "id": 1296270,
@@ -198,52 +205,40 @@ class GitHubSpec extends PlaySpec {
                     "html_url": "https://github.com/octocat/Hello-World"
                   }
                 ]""")
-              Ok(page match {
-                case 1 => firstPageRepos
-                case 2 => secondPageRepos
-                case 3 => empty
-              })
-            }
-          case GET(p"/repos/$owner/$repoName/contributors" ? q"page=${int(page)}") =>
-            Action {
-              Ok(if (page == 2)
+            Ok(page match {
+              case 1 => firstPageRepos
+              case 2 => secondPageRepos
+              case 3 => empty
+              case _ => fail("expectation: only 3 pages")
+            })
+          }
+        case GET(p"/repos/$owner/$repoName/contributors" ? q"page=${int(page)}") =>
+          Action {
+            Ok {
+              if (page == 2)
                 empty
+              else if(page > 2)
+                fail("expectation: only 2 pages")
               else if (repoName == repoName1) {
                 owner mustBe owner1
                 repo1Contributors
               } else if (repoName == repoName2) {
                 owner mustBe owner2
                 repo2Contributors
-              } else {
-                fail()
-                JsNull
-              })
+              } else
+                fail("repo names were not the ones expected")
             }
-        }
-      } { implicit port =>
-        WsTestClient.withClient { client =>
-          val contributors = Await.result(new GitHub(client, "").contributorsByNCommits(orgName), 10.seconds)
-          contributors mustBe Vector(ContributorInfo(name1, c1 * 2), ContributorInfo(name3, 2 * c3 + c3_1), ci2, ci4)
-        }
-      }
+          }
+      })(_ mustBe Vector(ContributorInfo(name1, c1 * 2), ContributorInfo(name3, 2 * c3 + c3_1), ci2, ci4))
     }
     "empty when org not found or user not authenticated. IOW, 404" in {
-      Server.withRouterFromComponents() { components =>
-        import Results._
-        import components.{ defaultActionBuilder => Action }
-        {
-          case GET(p"/orgs/$_/repos") =>
-            Action {
-              NotFound
-            }
-        }
-      } { implicit port =>
-        WsTestClient.withClient { client =>
-          a[Exception] must be thrownBy {
-            Await.result(new GitHub(client, "").contributorsByNCommits(orgName), 10.seconds)
-          }
-        }
-      }
+      testException(NotFound, a[Gh404ResponseException])
+    }
+    "Bad gateway when 502" in {
+      testException(BadGateway, a[Gh502ResponseException])
+    }
+    "Internal server error when not covered" in {
+      testException(ImATeapot, a[Gh500ResponseException])
     }
   }
 }
