@@ -37,7 +37,7 @@ class GitHub private[services] (ws: WSClient,
   }
 
   private def contributorsByNCommits(repos: Vector[Repo]): Task[SortedByNContributions] = {
-    val contributorsByRepo = repos.view.map(contributorsByNCommits)
+    val contributorsByRepo = repos.map(contributorsByNCommits)
     logger.info(s"querying ${repos.size} repos")
     // chunking heuristic to speed things up while attempting to work around GH's serving idiosyncrasies (namely, their
     // aversion to parallel requests)
